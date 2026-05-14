@@ -1,0 +1,41 @@
+name: Discord Webhook Notification
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 毎日 9:00 JST (UTC+9 = UTC 0:00)
+  workflow_dispatch:      # 手動実行（テスト用）
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord Webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MESSAGE: ${{ secrets.DISCORD_MESSAGE }}
+        run: |
+          MAX_RETRIES=3
+          RETRY_INTERVAL=600
+
+          for i in $(seq 1 $MAX_RETRIES); do
+            HTTP_CODE=$(curl -s -o /tmp/response.txt -w "%{http_code}" \
+              -X POST "$WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg msg "$MESSAGE" '{content: $msg}')")
+
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              echo "送信成功 (試行 $i/$MAX_RETRIES)"
+              exit 0
+            fi
+
+            echo "送信失敗 HTTP $HTTP_CODE (試行 $i/$MAX_RETRIES)"
+            cat /tmp/response.txt
+
+            if [ $i -lt $MAX_RETRIES ]; then
+              echo "${RETRY_INTERVAL}秒後にリトライします..."
+              sleep $RETRY_INTERVAL
+            fi
+          done
+
+          echo "送信が${MAX_RETRIES}回失敗しました"
+          exit 1
